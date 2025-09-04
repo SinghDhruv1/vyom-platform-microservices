@@ -1,22 +1,38 @@
 {
   "name": "vyom-platform-microservices",
-  "version": "1.0.0",
-  "description": "Vyom Platform Microservices - Complete API Gateway for React Native",
+  "version": "2.0.0",
+  "description": "Vyom Platform Microservices Architecture - Production Ready API Gateway with MySQL & MongoDB",
   "main": "api-gateway/index.js",
   "engines": {
     "node": "18.x"
   },
   "scripts": {
     "start": "node api-gateway/index.js",
-    "dev": "node api-gateway/index.js",
-    "test": "echo \"API Gateway ready for testing\""
+    "build": "echo 'Installing dependencies for all services...' && npm run install:all",
+    "install:all": "cd api-gateway && npm install && cd ../auth-service && npm install && cd ../wardrobe-service && npm install && cd ../outfit-service && npm install && cd ../user-profile-service && npm install",
+    "dev": "docker-compose up --build",
+    "dev:gateway": "cd api-gateway && npm run dev",
+    "dev:auth": "cd auth-service && npm run dev",
+    "dev:wardrobe": "cd wardrobe-service && npm run dev",
+    "dev:outfit": "cd outfit-service && npm run dev",
+    "dev:profile": "cd user-profile-service && npm run dev",
+    "stop": "docker-compose down",
+    "logs": "docker-compose logs -f",
+    "test": "curl -X GET http://localhost:3000/health"
   },
   "dependencies": {
     "express": "^4.18.2",
     "cors": "^2.8.5",
+    "axios": "^1.11.0",
     "bcryptjs": "^2.4.3",
     "jsonwebtoken": "^9.0.2",
-    "uuid": "^9.0.1"
+    "uuid": "^9.0.1",
+    "mysql2": "^3.6.0",
+    "mongodb": "^6.18.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1",
+    "concurrently": "^8.2.0"
   },
   "keywords": [
     "vyom",
@@ -24,8 +40,15 @@
     "microservices", 
     "wardrobe",
     "fashion",
-    "react-native"
+    "react-native",
+    "mysql",
+    "mongodb",
+    "docker"
   ],
   "author": "Vyom Platform",
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SinghDhruv1/vyom-platform-microservices.git"
+  }
 }

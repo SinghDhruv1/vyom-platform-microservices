@@ -1,0 +1,123 @@
+version: '3.8'
+
+services:
+  # Databases
+  mysql:
+    image: mysql:8.0
+    container_name: vyom_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: vyom_password
+      MYSQL_DATABASE: vyom_auth
+      MYSQL_USER: vyom_user
+      MYSQL_PASSWORD: vyom_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  mongodb:
+    image: mongo:7.0
+    container_name: vyom_mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: vyom_user
+      MONGO_INITDB_ROOT_PASSWORD: vyom_password
+      MONGO_INITDB_DATABASE: vyom_wardrobe
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Microservices
+  auth-service:
+    build: ./auth-service
+    container_name: vyom_auth_service
+    environment:
+      PORT: 3001
+      MYSQL_HOST: mysql
+      MYSQL_USER: vyom_user
+      MYSQL_PASSWORD: vyom_password
+      MYSQL_DATABASE: vyom_auth
+      JWT_SECRET: vyom_production_secret_key_auth
+    ports:
+      - "3001:3001"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+  wardrobe-service:
+    build: ./wardrobe-service
+    container_name: vyom_wardrobe_service
+    environment:
+      PORT: 3002
+      MONGODB_URI: mongodb://vyom_user:vyom_password@mongodb:27017/vyom_wardrobe?authSource=admin
+      JWT_SECRET: vyom_production_secret_key_auth
+    ports:
+      - "3002:3002"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+
+  outfit-service:
+    build: ./outfit-service
+    container_name: vyom_outfit_service
+    environment:
+      PORT: 3003
+      WARDROBE_SERVICE_URL: http://wardrobe-service:3002
+      JWT_SECRET: vyom_production_secret_key_auth
+    ports:
+      - "3003:3003"
+    depends_on:
+      - wardrobe-service
+    restart: unless-stopped
+
+  user-profile-service:
+    build: ./user-profile-service
+    container_name: vyom_profile_service
+    environment:
+      PORT: 3004
+      MONGODB_URI: mongodb://vyom_user:vyom_password@mongodb:27017/vyom_profiles?authSource=admin
+      JWT_SECRET: vyom_production_secret_key_auth
+    ports:
+      - "3004:3004"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    restart: unless-stopped
+
+  api-gateway:
+    build: ./api-gateway
+    container_name: vyom_api_gateway
+    environment:
+      PORT: 3000
+      AUTH_SERVICE_URL: http://auth-service:3001
+      WARDROBE_SERVICE_URL: http://wardrobe-service:3002
+      OUTFIT_SERVICE_URL: http://outfit-service:3003
+      PROFILE_SERVICE_URL: http://user-profile-service:3004
+    ports:
+      - "3000:3000"
+    depends_on:
+      - auth-service
+      - wardrobe-service
+      - outfit-service
+      - user-profile-service
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  mongodb_data:
+
+networks:
+  default:
+    name: vyom_network

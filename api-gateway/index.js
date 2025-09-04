@@ -1,9 +1,7 @@
-// Vyom Platform API Gateway - Production Ready
+// Vyom Platform API Gateway - Service Discovery & Routing
 const express = require('express');
 const cors = require('cors');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const { v4: uuidv4 } = require('uuid');
+const axios = require('axios');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -12,102 +10,47 @@ const PORT = process.env.PORT || 3000;
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '10mb' }));
 
-const JWT_SECRET = process.env.JWT_SECRET || 'vyom_production_secret_key';
-
-// Mock databases
-let users = [
-  {
-    id: 1,
-    uuid: '4205e3e9-5a64-11f0-aecf-f854f659880d',
-    email: 'admin@vyom.com',
-    full_name: 'System Administrator',
-    password_hash: '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewjMJA...',
-    role: 'ADMIN',
-    status: 'ACTIVE'
-  },
-  {
-    id: 5,
-    uuid: '30968eab-5a70-11f0-aecf-f854f659880d',
-    email: '93anil199@gmail.com',
-    full_name: 'Anil Yadav',
-    password_hash: '$2b$12$2ZYhFwnukGcPYT/2O2a2vunJmbCOyGFlumoTYrWOQW5...',
-    role: 'USER',
-    status: 'ACTIVE'
-  }
-];
-
-let clothingItems = [
-  {
-    id: '507f1f77bcf86cd799439011',
-    userId: '30968eab-5a70-11f0-aecf-f854f659880d',
-    name: 'Blue Denim Jacket',
-    category: 'outerwear',
-    colors: ['blue'],
-    seasons: ['spring', 'fall'],
-    occasions: ['casual'],
-    brand: 'Levi\'s',
-    size: 'M',
-    purchasePrice: 89.99,
-    wearCount: 5,
-    favorite: true,
-    imageUri: 'https://example.com/blue-jacket.jpg'
-  },
-  {
-    id: '507f1f77bcf86cd799439012',
-    userId: '30968eab-5a70-11f0-aecf-f854f659880d',
-    name: 'White Cotton T-Shirt',
-    category: 'top',
-    colors: ['white'],
-    seasons: ['all-year'],
-    occasions: ['casual', 'sports'],
-    brand: 'Nike',
-    size: 'M',
-    purchasePrice: 29.99,
-    wearCount: 15,
-    favorite: false,
-    imageUri: 'https://example.com/white-tshirt.jpg'
-  }
-];
-
-let userProfiles = [
-  {
-    userId: '30968eab-5a70-11f0-aecf-f854f659880d',
-    displayName: 'Anil Yadav',
-    bio: 'Fashion enthusiast and style blogger',
-    stylePersonality: ['casual', 'trendy'],
-    favoriteColors: ['blue', 'black', 'white'],
-    location: { city: 'Mumbai', country: 'India' }
-  }
-];
-
-// Helper functions
-const generateToken = (user) => {
-  return jwt.sign(
-    { 
-      userId: user.id,
-      uuid: user.uuid,
-      email: user.email,
-      role: user.role 
-    },
-    JWT_SECRET,
-    { expiresIn: '7d' }
-  );
+// Microservice URLs (configurable via environment variables)
+const SERVICES = {
+  AUTH: process.env.AUTH_SERVICE_URL || 'http://localhost:3001',
+  WARDROBE: process.env.WARDROBE_SERVICE_URL || 'http://localhost:3002',
+  OUTFIT: process.env.OUTFIT_SERVICE_URL || 'http://localhost:3003',
+  PROFILE: process.env.PROFILE_SERVICE_URL || 'http://localhost:3004'
 };
 
-const authenticateToken = (req, res, next) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-  
-  if (!token) {
-    return res.status(401).json({ error: 'Access token required' });
-  }
-  
+// Helper function to proxy requests to microservices
+const proxyRequest = async (req, res, serviceUrl, path) => {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
-    next();
+    const config = {
+      method: req.method,
+      url: `${serviceUrl}${path}`,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(req.headers.authorization && { 'Authorization': req.headers.authorization })
+      },
+      ...(req.body && Object.keys(req.body).length > 0 && { data: req.body }),
+      ...(req.query && Object.keys(req.query).length > 0 && { params: req.query })
+    };
+    
+    const response = await axios(config);
+    res.status(response.status).json(response.data);
   } catch (error) {
-    return res.status(403).json({ error: 'Invalid token' });
+    console.error(`Proxy error to ${serviceUrl}${path}:`, error.message);
+    
+    if (error.response) {
+      res.status(error.response.status).json(error.response.data);
+    } else if (error.code === 'ECONNREFUSED') {
+      res.status(503).json({ 
+        error: 'Service temporarily unavailable',
+        service: serviceUrl,
+        message: 'The requested service is not available at the moment'
+      });
+    } else {
+      res.status(500).json({ 
+        error: 'Gateway error',
+        message: 'Failed to process request'
+      });
+    }
   }
 };
 
@@ -115,328 +58,166 @@ const authenticateToken = (req, res, next) => {
 app.get('/', (req, res) => {
   res.json({
     service: '🚀 Vyom Platform - API Gateway',
-    version: '1.0.0-production',
-    description: 'Complete API Gateway for Vyom Platform',
-    message: 'LIVE API - Ready for React Native!',
-    
+    version: '2.0.0-microservices',
+    architecture: 'Microservices',
     endpoints: {
-      'POST /auth/register': 'Register new user',
-      'POST /auth/login': 'User login',
-      'GET /auth/me': 'Get current user',
-      'GET /wardrobe/items': 'Get all clothing items',
-      'POST /wardrobe/items': 'Add clothing item',
-      'POST /outfits/generate': 'Generate outfit recommendation',
-      'GET /profile': 'Get user profile',
-      'PUT /profile': 'Update user profile'
+      'Authentication': {
+        'POST /auth/register': 'Register new user',
+        'POST /auth/login': 'User login',
+        'GET /auth/me': 'Get current user'
+      },
+      'Wardrobe Management': {
+        'GET /wardrobe/items': 'Get all clothing items',
+        'POST /wardrobe/items': 'Add new clothing item',
+        'PUT /wardrobe/items/:id': 'Update clothing item',
+        'DELETE /wardrobe/items/:id': 'Delete clothing item',
+        'GET /wardrobe/analytics': 'Get wardrobe analytics'
+      },
+      'Outfit Generation': {
+        'POST /outfits/generate': 'Generate AI outfit recommendations',
+        'GET /outfits/suggestions': 'Get style suggestions'
+      },
+      'User Profile': {
+        'GET /profile': 'Get user profile',
+        'PUT /profile': 'Update user profile',
+        'POST /profile/style-quiz': 'Complete style personality quiz',
+        'GET /profile/recommendations': 'Get personalized recommendations'
+      }
     },
-    
-    testUsers: [
-      { email: 'admin@vyom.com', password: 'any', note: 'Admin user' },
-      { email: '93anil199@gmail.com', password: 'any', note: 'Beta user' }
-    ],
-    
+    services: {
+      authService: SERVICES.AUTH,
+      wardrobeService: SERVICES.WARDROBE,
+      outfitService: SERVICES.OUTFIT,
+      profileService: SERVICES.PROFILE
+    },
     reactNativeIntegration: {
       baseURL: req.protocol + '://' + req.get('host'),
-      example: {
-        login: `${req.protocol}://${req.get('host')}/auth/login`,
-        wardrobe: `${req.protocol}://${req.get('host')}/wardrobe/items`,
-        outfits: `${req.protocol}://${req.get('host')}/outfits/generate`
-      }
+      documentation: 'All endpoints support JWT authentication via Authorization header'
     }
   });
 });
 
-app.get('/health', (req, res) => {
-  res.json({
-    status: '✅ Vyom API Gateway - LIVE!',
-    timestamp: new Date().toISOString(),
-    services: {
-      authentication: 'ready',
-      wardrobe: 'ready', 
-      profiles: 'ready',
-      outfits: 'ready'
-    },
-    stats: {
-      users: users.length,
-      items: clothingItems.length,
-      profiles: userProfiles.length
-    },
-    uptime: process.uptime()
-  });
+// Authentication Routes (Proxy to Auth Service)
+app.post('/auth/register', (req, res) => {
+  proxyRequest(req, res, SERVICES.AUTH, '/register');
 });
 
-// AUTHENTICATION ENDPOINTS
-app.post('/auth/register', async (req, res) => {
-  try {
-    const { email, password, fullName } = req.body;
-    
-    if (!email || !password || !fullName) {
-      return res.status(400).json({ error: 'Email, password, and fullName are required' });
-    }
-    
-    const existingUser = users.find(u => u.email.toLowerCase() === email.toLowerCase());
-    if (existingUser) {
-      return res.status(409).json({ error: 'Email already exists' });
-    }
-    
-    const passwordHash = await bcrypt.hash(password, 10);
-    
-    const newUser = {
-      id: Math.max(...users.map(u => u.id)) + 1,
-      uuid: uuidv4(),
-      email: email.toLowerCase(),
-      full_name: fullName,
-      password_hash: passwordHash,
-      role: 'USER',
-      status: 'ACTIVE',
-      created_at: new Date().toISOString()
-    };
-    
-    users.push(newUser);
-    const token = generateToken(newUser);
-    
-    res.status(201).json({
-      success: true,
-      message: '🎉 User registered successfully!',
-      user: {
-        id: newUser.id,
-        uuid: newUser.uuid,
-        email: newUser.email,
-        fullName: newUser.full_name,
-        role: newUser.role,
-        status: newUser.status
-      },
-      token
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Registration failed', details: error.message });
-  }
+app.post('/auth/login', (req, res) => {
+  proxyRequest(req, res, SERVICES.AUTH, '/login');
 });
 
-app.post('/auth/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
-    }
-    
-    const user = users.find(u => u.email.toLowerCase() === email.toLowerCase() && u.status === 'ACTIVE');
-    if (!user) {
-      return res.status(401).json({ error: 'Invalid email or password' });
-    }
-    
-    // For beta testing - accept any password
-    const token = generateToken(user);
-    
-    res.json({
-      success: true,
-      message: '🎉 Login successful!',
-      user: {
-        id: user.id,
-        uuid: user.uuid,
-        email: user.email,
-        fullName: user.full_name,
-        role: user.role,
-        status: user.status
-      },
-      token
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Login failed', details: error.message });
-  }
+app.get('/auth/me', (req, res) => {
+  proxyRequest(req, res, SERVICES.AUTH, '/me');
 });
 
-app.get('/auth/me', authenticateToken, (req, res) => {
-  try {
-    const user = users.find(u => u.id === req.user.userId);
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    res.json({
-      success: true,
-      user: {
-        id: user.id,
-        uuid: user.uuid,
-        email: user.email,
-        fullName: user.full_name,
-        role: user.role,
-        status: user.status
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to get user info' });
-  }
+// Wardrobe Routes (Proxy to Wardrobe Service)
+app.get('/wardrobe/items', (req, res) => {
+  proxyRequest(req, res, SERVICES.WARDROBE, '/items');
 });
 
-// WARDROBE ENDPOINTS
-app.get('/wardrobe/items', authenticateToken, (req, res) => {
-  try {
-    const userItems = clothingItems.filter(item => item.userId === req.user.uuid);
-    
-    res.json({
-      success: true,
-      message: '👔 Your wardrobe items',
-      items: userItems,
-      count: userItems.length,
-      summary: {
-        totalItems: userItems.length,
-        categories: [...new Set(userItems.map(item => item.category))],
-        totalValue: userItems.reduce((sum, item) => sum + (item.purchasePrice || 0), 0),
-        avgWearCount: userItems.length > 0 ? userItems.reduce((sum, item) => sum + item.wearCount, 0) / userItems.length : 0
-      }
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to get clothing items' });
-  }
+app.post('/wardrobe/items', (req, res) => {
+  proxyRequest(req, res, SERVICES.WARDROBE, '/items');
 });
 
-app.post('/wardrobe/items', authenticateToken, (req, res) => {
-  try {
-    const { name, category, colors, seasons, occasions, brand, size, purchasePrice } = req.body;
-    
-    if (!name || !category) {
-      return res.status(400).json({ error: 'Name and category are required' });
-    }
-    
-    const newItem = {
-      id: Math.random().toString(36).substr(2, 9),
-      userId: req.user.uuid,
-      name,
-      category,
-      colors: colors || [],
-      seasons: seasons || [],
-      occasions: occasions || [],
-      brand: brand || '',
-      size: size || '',
-      purchasePrice: purchasePrice || 0,
-      wearCount: 0,
-      favorite: false,
-      imageUri: `https://example.com/${name.toLowerCase().replace(/\s+/g, '-')}.jpg`,
-      createdAt: new Date().toISOString()
-    };
-    
-    clothingItems.push(newItem);
-    
-    res.status(201).json({
-      success: true,
-      message: '✨ Clothing item added successfully!',
-      item: newItem
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to add clothing item' });
-  }
+app.put('/wardrobe/items/:id', (req, res) => {
+  proxyRequest(req, res, SERVICES.WARDROBE, `/items/${req.params.id}`);
 });
 
-// OUTFIT ENDPOINTS
-app.post('/outfits/generate', authenticateToken, (req, res) => {
-  try {
-    const { occasion, weather, date } = req.body;
-    const userItems = clothingItems.filter(item => item.userId === req.user.uuid);
-    
-    if (userItems.length === 0) {
-      return res.status(400).json({ error: 'No clothing items found. Add some items first!' });
-    }
-    
-    const tops = userItems.filter(item => item.category === 'top');
-    const outerwear = userItems.filter(item => item.category === 'outerwear');
-    
-    const outfit = {
-      id: Math.random().toString(36).substr(2, 9),
-      occasion: occasion || 'casual',
-      scheduledFor: date || new Date().toISOString().split('T')[0],
-      weather: weather || { temperature: 72, condition: 'sunny' },
-      items: [],
-      confidence: 0.85
-    };
-    
-    if (tops.length > 0) {
-      outfit.items.push(tops[Math.floor(Math.random() * tops.length)]);
-    }
-    
-    if (outerwear.length > 0 && weather?.temperature < 70) {
-      outfit.items.push(outerwear[Math.floor(Math.random() * outerwear.length)]);
-    }
-    
-    res.json({
-      success: true,
-      message: '✨ Outfit recommendation generated!',
-      outfit,
-      tips: [
-        'This combination works well for the specified occasion',
-        'Weather-appropriate choices selected'
-      ]
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to generate outfit' });
-  }
+app.delete('/wardrobe/items/:id', (req, res) => {
+  proxyRequest(req, res, SERVICES.WARDROBE, `/items/${req.params.id}`);
 });
 
-// PROFILE ENDPOINTS
-app.get('/profile', authenticateToken, (req, res) => {
-  try {
-    const profile = userProfiles.find(p => p.userId === req.user.uuid);
-    
-    if (!profile) {
-      return res.status(404).json({ 
-        success: false,
-        error: 'Profile not found',
-        message: 'Create a profile by updating it'
-      });
-    }
-    
-    res.json({
-      success: true,
-      message: '👤 Your profile',
-      profile
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to get profile' });
-  }
+app.get('/wardrobe/analytics', (req, res) => {
+  proxyRequest(req, res, SERVICES.WARDROBE, '/analytics');
 });
 
-app.put('/profile', authenticateToken, (req, res) => {
-  try {
-    const { displayName, bio, stylePersonality, favoriteColors, location } = req.body;
-    
-    let profile = userProfiles.find(p => p.userId === req.user.uuid);
-    
-    if (!profile) {
-      profile = {
-        userId: req.user.uuid,
-        displayName: displayName || req.user.email.split('@')[0],
-        bio: '',
-        stylePersonality: [],
-        favoriteColors: [],
-        location: {}
+// Outfit Routes (Proxy to Outfit Service)
+app.post('/outfits/generate', (req, res) => {
+  proxyRequest(req, res, SERVICES.OUTFIT, '/generate');
+});
+
+app.get('/outfits/suggestions', (req, res) => {
+  proxyRequest(req, res, SERVICES.OUTFIT, '/suggestions');
+});
+
+// Profile Routes (Proxy to Profile Service)
+app.get('/profile', (req, res) => {
+  proxyRequest(req, res, SERVICES.PROFILE, '/profile');
+});
+
+app.put('/profile', (req, res) => {
+  proxyRequest(req, res, SERVICES.PROFILE, '/profile');
+});
+
+app.post('/profile/style-quiz', (req, res) => {
+  proxyRequest(req, res, SERVICES.PROFILE, '/style-quiz');
+});
+
+app.get('/profile/recommendations', (req, res) => {
+  proxyRequest(req, res, SERVICES.PROFILE, '/recommendations/personal');
+});
+
+// Health check for all services
+app.get('/health', async (req, res) => {
+  const healthChecks = {};
+  
+  for (const [name, url] of Object.entries(SERVICES)) {
+    try {
+      const response = await axios.get(`${url}/health`, { timeout: 5000 });
+      healthChecks[name.toLowerCase()] = {
+        status: 'healthy',
+        url,
+        response: response.data
       };
-      userProfiles.push(profile);
+    } catch (error) {
+      healthChecks[name.toLowerCase()] = {
+        status: 'unhealthy',
+        url,
+        error: error.message
+      };
     }
-    
-    if (displayName) profile.displayName = displayName;
-    if (bio) profile.bio = bio;
-    if (stylePersonality) profile.stylePersonality = stylePersonality;
-    if (favoriteColors) profile.favoriteColors = favoriteColors;
-    if (location) profile.location = { ...profile.location, ...location };
-    
-    profile.updatedAt = new Date().toISOString();
-    
-    res.json({
-      success: true,
-      message: '✨ Profile updated successfully!',
-      profile
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to update profile' });
   }
+  
+  const allHealthy = Object.values(healthChecks).every(service => service.status === 'healthy');
+  
+  res.status(allHealthy ? 200 : 503).json({
+    gateway: {
+      status: 'healthy',
+      version: '2.0.0-microservices'
+    },
+    services: healthChecks,
+    overall: allHealthy ? 'All services operational' : 'Some services are down'
+  });
 });
 
-// Start server
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Vyom Platform API Gateway - LIVE!`);
-  console.log(`🌐 Port: ${PORT}`);
-  console.log(`✅ Ready for React Native integration!`);
+// Fallback route
+app.use('*', (req, res) => {
+  res.status(404).json({
+    error: 'Route not found',
+    availableEndpoints: {
+      'GET /': 'API Gateway info',
+      'POST /auth/login': 'User authentication',
+      'GET /wardrobe/items': 'Get wardrobe',
+      'POST /outfits/generate': 'Generate outfits',
+      'GET /profile': 'User profile',
+      'GET /health': 'Service health check'
+    }
+  });
 });
 
-module.exports = app;
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Gateway error:', err);
+  res.status(500).json({
+    error: 'Internal server error',
+    message: 'Something went wrong in the API Gateway'
+  });
+});
+
+app.listen(PORT, () => {
+  console.log(`🌐 API Gateway running on port ${PORT}`);
+  console.log('📡 Connected services:');
+  Object.entries(SERVICES).forEach(([name, url]) => {
+    console.log(`   ${name}: ${url}`);
+  });
+});
